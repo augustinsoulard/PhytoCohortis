@@ -122,18 +122,22 @@ ggplot(nmds_sites, aes(x = NMDS1, y = NMDS2)) +
 ################################################
 
 # Charger les données environnementales
-library(readxl)
 env_data <- read_csv2("../data/envdata_releve.csv") # Remplacez par le chemin correct
 env_data = env_data[order(env_data$Nom), ]
 base::rownames(env_data) <- env_data$Nom # Assurez-vous que les lignes sont nommées par les relevés
 
 #Retirer les relevés à retirer : 
-env_data = env_data %>% filter(!Nom %in% c("R21","R8","R24","R23"))
+env_data = env_data %>% filter(!Nom %in% c("R21","R8","R24","R23"))%>%
+  {rownames(.) <- .$Nom; .}
 
 # Ordonner les tableaux de la même manière
 data_releve_matrix = data_releve_matrix[order(rownames(data_releve_matrix)), ]
 
-all(rownames(data_releve_matrix) == rownames(env_data)) # TRUE c'est que les données sont prêtes pour la CCA. AUtrement réordonner les tables
+# Forcer la correspondance des lignes avant la CCA
+# env_data <- env_data[rownames(data_releve_matrix), ]
+
+stopifnot(all(rownames(data_releve_matrix) == rownames(env_data))) # TRUE c'est que les données sont prêtes pour la CCA. AUtrement réordonner les tables
+
 
 #Filtrer les variables utilisées
 env_data = env_data %>% select(Altitude, Pente,Recouvrement_herbacee,Recouvrement_arbustive, Recouvrement_arboree,
@@ -147,6 +151,9 @@ env_data = as.data.frame(apply(env_data,2,function(x){
 }
   
   ))
+
+
+
 
 # Exécuter la CCA
 cca_result <- cca(data_releve_matrix ~ ., data = env_data)
