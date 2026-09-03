@@ -1,0 +1,7 @@
+# ======================
+# Fichiers R et RStudio
+# ======================
+.Rproj.user/
+.Rhistory
+.RData
+.Ruser/
