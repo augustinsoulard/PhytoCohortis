@@ -1,6 +1,6 @@
 # Introduction à R
 
-# Installation de R et RStudio ####
+# Installation de R et RStudio ########################################
 # Pour commencer, assurez-vous d'avoir installé R et RStudio.
 # Vous pouvez télécharger R depuis https://cran.r-project.org/
 # et RStudio depuis https://posit.co/download/rstudio-desktop/.
@@ -12,16 +12,31 @@
 
 # Manipulation de données avec R
 
-# Charger les packages nécessaires
-library(dplyr)
-library(readr)
-library(tidyr)
+# Chargement des packages ########################################
 
+# Manipulation et transformation des données
+library(dplyr)   # Opérations sur les data frames (filtrer, sélectionner, agrégat)
+library(tidyr)   # Nettoyage et réorganisation des données (pivot, tidy data)
+library(tibble)  # Création et manipulation de tibbles (data frames modernes)
 
-# Choix du dossier de travail
+# Import/export des données
+library(readr)    # Lecture de fichiers (CSV, TSV, etc.)
+library(openxlsx) # Écriture et lecture de fichiers Excel (.xlsx)
+
+# Visualisation
+library(ggplot2)  # Création de graphiques statistiques
+library(ggrepel)  # Évite le chevauchement des labels dans ggplot2
+
+# Analyses écologiques
+library(vegan)         # Analyses multivariées pour les communautés végétales (NMDS, PCA, etc.)
+library(indicspecies) # Identification des espèces indicatrices
+library(NbClust) # Package d'aide au choix du nombre de cluster
+library(factoextra) # pour faire un cluster coloré
+
+# Choix du répertoire de travail
 setwd(dirname(rstudioapi::getActiveDocumentContext()$path))
 
-# Importation de données ####
+# Importation de données ########################################
 # Utilisons un exemple de jeu de données de relevés phytosociologiques
 # ?nous avons un fichier CSV nommé 'data_releve_type.csv'.
 # Voici comment importer ces données :
@@ -37,29 +52,21 @@ data_releve = data_releve %>% mutate(abondance_dominance = case_when(
 
 # Filtrer les données utiles
 # Exemple ne choisir que certains relevés
-data_releve_filtre = data_releve %>% filter(releve %in% c("R27","29"))
+data_releve_filtre = data_releve %>% filter(releve %in% c("R27","R20"))
 # Visualisation de données
-
-# Charger le package ggplot2
-library(ggplot2)
 
 # Création de graphiques heatmap pour visualiser les similitudes des relevés
 
 ggplot(data_releve_filtre, aes(x = espece, y = releve, fill = abondance_dominance))+
   geom_tile() +
-  scale_fill_gradient(low = "#aa55ff", high = "#00dd00") +  # Ajustez la palette de couleurs selon vos préférences
+  scale_fill_gradient(low = "#f8c856", high = "#228822") +  # Ajustez la palette de couleurs selon vos préférences
   labs(x = "Espèce", y = "Relevé", fill = "Abandance") +
   theme_minimal() +
   theme(axis.text.x = element_text(angle = 90, hjust = 1))
 
-# Utilisons des méthodes d'ordination pour analyser les communautés végétales.
-library(vegan)
-
-# Convertir les données en matrice appropriée pour l'analyse NMDS
-library(tibble)
 
 # Retirer des relevés
-data_releve = data_releve %>% filter(!releve %in% c("R21","R8","R24","R23"))
+data_releve = data_releve %>% filter(!releve %in% c("R21","R8","R24","R23","R28"))
 
 # Créer une colonne combinée pour strate et espèce
 data_releve_combined <- data_releve %>%
@@ -78,22 +85,59 @@ data_releve_matrix[is.na(data_releve_matrix)] = 0
 # Calculer la matrice des distances de Bray-Curtis
 distance_matrix = vegdist(data_releve_matrix, method = "bray")
 
-# Effectuer la Classification Ascendante Hiérarchique
+# Effectuer la Classification Ascendante Hiérarchique  ########################################
 cah_result <- hclust(distance_matrix, method = "ward.D2")
 
 
 # Couper le dendrogramme pour obtenir des groupes (par exemple, 3 groupes)
-num_groups <- 8
-groups <- cutree(cah_result, k = num_groups)
+  # Liste des indices à tester
+  indices <- c("frey", "mcclain", "cindex", "silhouette", "dunn")
+  
+  # Calculer Best.nc pour chaque index et stocker dans une liste
+  best_nc_list <- lapply(indices, function(idx) {
+    NbClust(diss = distance_matrix, distance = NULL, method = "ward.D2", index = idx, min.nc = 2, max.nc = 30)$Best.nc #Retirer $Best.nc pour avoir les détails
+  })
+  
+  # Nommage automatique de la liste
+  names(best_nc_list) <- indices
+  
+  # Afficher/retourner la liste finale
+  best_nc_list
 
-# Convertir les groupes en facteur
-groups <- factor(groups)
 
-# Tracer le dendrogramme avec les groupes colorés
-plot(cah_result, main = "Classification Ascendante Hiérarchique", xlab = "Relevés", sub = "")
-rect.hclust(cah_result, k = num_groups, border = 2:4)
+  num_groups <- 8 # CHOIX DU NOMBRE DE GROUPE
+  groups <- cutree(cah_result, k = num_groups)
+  
+  # Convertir les groupes en facteur
+  groups <- factor(groups)
+  
+  # Assigner des couleurs de base aux groupes (Groupe 1 = couleur 1, etc.)
+  my_colors <- rainbow(num_groups)
+  
+  # Récupérer l'ordre des clusters tel qu'affiché de gauche à droite
+  leaf_order <- order.dendrogram(as.dendrogram(cah_result))
+  groups_in_dendro_order <- groups[leaf_order]
+  cluster_order_in_dendro <- unique(groups_in_dendro_order)
+  
+  # CORRECTION : Assigner les couleurs exactement dans l'ordre d'apparition
+  dendro_colors <- my_colors[cluster_order_in_dendro]
+  
+  # Tracer le dendrogramme
+  library(factoextra)
+  fviz_dend(
+    cah_result,
+    k = num_groups,
+    k_colors = rep("black", num_groups), # Attention au double virgule corrigé ici
+    color_labels_by_k = FALSE,
+    rect = TRUE,
+    rect_border = dendro_colors, # Utilise les couleurs réordonnées
+    rect_fill = FALSE,           
+    rect_lty = 1,                
+    ggtheme = theme_minimal()
+  )
 
-# Exécuter l'analyse NMDS ####
+
+# Exécuter l'analyse NMDS ########################################
 set.seed(124) # pour la reproductibilité
 nmds_result <- metaMDS(data_releve_matrix, k = 2, trymax = 100, autotransform = FALSE)
 stress_val <- round(nmds_result$stress, 3)
@@ -103,11 +147,12 @@ nmds_sites <- as.data.frame(scores(nmds_result, display = "sites"))
 nmds_sites$label <- rownames(nmds_sites)
 
 # Assigner les groupes aux relevés NMDS
-nmds_sites$Groupe <- groups[rownames(nmds_sites)]
+nmds_sites$Groupe <- factor(groups[rownames(nmds_sites)], levels = 1:num_groups)
 
 # Visualisation avec ggplot2
 ggplot(nmds_sites, aes(x = NMDS1, y = NMDS2)) +
   geom_point(aes(color = Groupe), size = 3) +
+  scale_color_manual(values = my_colors) +
   ggrepel::geom_text_repel(aes(label = label), size = 3, max.overlaps = 100) +
   labs(title = "Ordination NMDS",
        subtitle = paste("Stress:", stress_val),
@@ -115,11 +160,9 @@ ggplot(nmds_sites, aes(x = NMDS1, y = NMDS2)) +
   theme_minimal() +
   coord_equal()
 
-# Relancer maintenant après la création de relevé
 
-################################################
-# Analyses des données environnementales ####
-################################################
+# Analyses des données environnementales ########################################
+
 
 # Charger les données environnementales
 env_data <- read_csv2("../data/envdata_releve.csv") # Remplacez par le chemin correct
@@ -127,7 +170,7 @@ env_data = env_data[order(env_data$Nom), ]
 base::rownames(env_data) <- env_data$Nom # Assurez-vous que les lignes sont nommées par les relevés
 
 #Retirer les relevés à retirer : 
-env_data = env_data %>% filter(!Nom %in% c("R21","R8","R24","R23"))%>%
+env_data = env_data %>% filter(!Nom %in% c("R21","R8","R24","R23","R28"))%>%
   {rownames(.) <- .$Nom; .}
 
 # Ordonner les tableaux de la même manière
@@ -202,9 +245,6 @@ axe_x_label <- paste0("CCA1 (", cca1_percent, "%)")
 axe_y_label <- paste0("CCA2 (", cca2_percent, "%)")
 
 # Visualisation avec ggplot2 pour les relevés et variables environnementales
-library(ggplot2)
-library(ggrepel)
-
 ggplot() +
   # --- Relevés ---
   geom_point(data = df_sites, aes(x = CCA1, y = CCA2),
@@ -238,8 +278,54 @@ ggplot() +
   labs(title = "CCA Biplot", x = axe_x_label, y = axe_y_label) +
   theme_minimal()
 
+
+# Récupérer les scores des espèces (display = "species" est valide)
+species_scores_cca <- vegan::scores(cca_result, display = "species", choices = c(1, 2))
+
+# Calculer la contribution (somme des carrés des scores)
+species_contrib <- rowSums(species_scores_cca^2)
+
+# Trier et sélectionner les top N
+top_n <- 20 # CHOIX DU NOMBRE D'ESPECE A AFFICHER
+top_species <- names(sort(species_contrib, decreasing = TRUE)[1:top_n])
+
+# Filtrer df_species
+df_species_filtered <- df_species[df_species$Species %in% top_species, ]
+
+# Visualisation des top espèces et des variables environnementales
+ggplot() +
+  # --- Espèces (avec répétition des étiquettes) ---
+  geom_point(data = df_species_filtered, aes(x = CCA1, y = CCA2),
+             color = "black", size = 1) +
+  geom_text_repel(
+    data = df_species_filtered,
+    aes(x = CCA1, y = CCA2, label = Species),
+    size = 3,                     # Légèrement plus grand
+    color = "black",
+    max.overlaps = 100,            # Autorise jusqu'à 100 chevauchements initiaux
+    box.padding = 0.5,             # Espace autour des étiquettes
+    segment.color = "grey50",      # Couleur des segments
+    segment.size = 0.2,            # Épaisseur des segments
+    direction = "both",            # Déplace dans toutes les directions
+    angle = 0                      # Garde le texte horizontal
+  ) +
+  
+  # --- Variables environnementales (inchangé) ---
+  geom_segment(data = df_env, aes(x = 0, y = 0, xend = CCA1, yend = CCA2),
+               arrow = arrow(length = unit(0.2, "cm")), color = "red") +
+  geom_text_repel(data = df_env, aes(x = CCA1, y = CCA2, label = Variable),
+                  size = 3, color = "red", segment.color = "grey50") +
+  
+  labs(title = "CCA Biplot (Top espèces)", x = axe_x_label, y = axe_y_label) +
+  theme_minimal()
+
+
 # Test de permutation
-permutest(cca_result, permutations = 999)
+# On teste l'hypothèse nulle, il n'y a pas de lien entre mes variables environnementales et mes espèces
+# Si p-value <0.05, rejet de l'hypothèse nulle, donc il y a bien un lien entre mes varibles environnementales et les espèces
+
+permutest(cca_result, permutations = 999) 
+
 
 # Summary pour voir la variance expliquée
 summary(cca_result)
@@ -247,11 +333,8 @@ summary(cca_result)
 
 df_species
 
-#####################
-# Indice Value ####
-#####################
 
-library(indicspecies)
+# Indice Value ########################################
 
 # Assurez-vous que 'groups' est un facteur
 groups <- factor(groups)
@@ -274,9 +357,6 @@ print(indval_df)
 
 
 ### Appartenance des relevés aux groupes
-# Assurez-vous que le package dplyr est chargé
-library(dplyr)
-
 # 1. Créer un data frame à partir de votre objet 'groups'
 # L'objet 'groups' (créé avec cutree) contient déjà les noms des relevés et leur groupe.
 df_groupes <- data.frame(Releve = names(groups), 
@@ -291,9 +371,7 @@ df_summary <- df_groupes %>%
 print("Liste des relevés pour chaque groupe de la CAH :")
 print(df_summary)
 
-# Sauvegarder les résultats dans un même excel
-library(openxlsx)
-
+# Sauvegarder les résultats dans un même excel  ########################################
 # 1. Créer un classeur Excel vide
 wb <- createWorkbook()
 

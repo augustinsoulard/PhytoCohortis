@@ -10,6 +10,7 @@ library(ape)       # Pour la visualisation de l'arbre de classification
 library(data.table) # Pour utiliser dcast()
 library(vegan)     # Pour NMDS et analyse de similarité
 library(indicspecies) # Pour les espèces indicatrices avec multipatt()
+library(factoextra) 
 
 # Fonction pour convertir les codes Braun-Blanquet en valeurs numériques (ex: '+' = 1, '1' = 2, etc.)
 convert_bb <- function(x) {
@@ -125,14 +126,30 @@ server <- function(input, output, session) {
     cutree(clust, k = input$n_clusters)
   })
   
+   colors <- reactive({
+    rainbow(input$n_clusters)  # Génère les couleurs pour chaque cluster
+  })
+  
   output$clustering_plot <- renderPlot({
     mat <- data_pivoted()
     dist_mat <- vegdist(mat, method = "bray")
     clust <- hclust(dist_mat, method = "ward.D2")
-    plot(clust, main = "Classification hiérarchique (Bray-Curtis)", xlab = "", sub = "")
-    rect.hclust(clust, k = input$n_clusters, border = 2:6)
+    
+    fviz_dend(
+      clust,
+      k = input$n_clusters,
+      k_colors = rep("black", input$n_clusters),  # Couleur des labels des clusters
+      color_labels_by_k = FALSE,                  # Ne pas colorier les labels par cluster
+      rect = TRUE,                                # Afficher les rectangles
+      rect_border = colors(),                     # Couleurs des bords des rectangles
+      rect_fill = FALSE,                          # Pas de remplissage
+      rect_lty = 1,                               # Ligne pleine pour les bords
+      ggtheme = theme_minimal(),                  # Thème minimaliste
+      main = "Classification hiérarchique (Bray-Curtis)"
+    )
   })
   
+ 
   output$nmds_plot <- renderPlot({
     mat <- data_pivoted()
     groups <- factor(cluster_membership())
@@ -145,6 +162,7 @@ server <- function(input, output, session) {
     
     ggplot(nmds_sites, aes(x = NMDS1, y = NMDS2)) +
       geom_point(aes(color = Groupe), size = 3) +
+      scale_color_manual(values = colors()) +  # <-- Ajout des couleurs personnalisées
       ggrepel::geom_text_repel(aes(label = label), size = 3, max.overlaps = 100) +
       labs(title = "Ordination NMDS",
            subtitle = paste("Stress:", stress_val),
