@@ -6,11 +6,11 @@ library(shiny)
 library(tidyr)
 library(dplyr)
 library(DT)        # Pour les tableaux interactifs
+library(factoextra)
 library(ape)       # Pour la visualisation de l'arbre de classification
 library(data.table) # Pour utiliser dcast()
 library(vegan)     # Pour NMDS et analyse de similarité
 library(indicspecies) # Pour les espèces indicatrices avec multipatt()
-library(factoextra) 
 
 # Fonction pour convertir les codes Braun-Blanquet en valeurs numériques (ex: '+' = 1, '1' = 2, etc.)
 convert_bb <- function(x) {
@@ -119,40 +119,77 @@ server <- function(input, output, session) {
     }
   )
   
-  cluster_membership <- reactive({
+  # ---------------------------------------------------------------------------
+  # CLASSIFICATION DE REFERENCE (une seule fois, partagée par tous les affichages)
+  # ---------------------------------------------------------------------------
+  # Renvoie une liste :  hclust object + matrice + attributs de coupure
+  hc_result <- reactive({
     mat <- data_pivoted()
     dist_mat <- vegdist(mat, method = "bray")
     clust <- hclust(dist_mat, method = "ward.D2")
-    cutree(clust, k = input$n_clusters)
+    groups <- cutree(clust, k = input$n_clusters)          # ids BRUTS de cutree
+    leaf_order <- order.dendrogram(as.dendrogram(clust))   # ordre des feuilles (gauche->droite)
+    list(mat = mat, clust = clust, groups = groups, leaf_order = leaf_order)
   })
   
-   colors <- reactive({
-    rainbow(input$n_clusters)  # Génère les couleurs pour chaque cluster
+  # Ordre (gauche->droite) des groupes BRUTS de cutree dans le dendrogramme
+  dendro_cluster_order <- reactive({
+    res <- hc_result()
+    unique(res$groups[res$leaf_order])
+  })
+  
+  # RENUMEROTATION : chaque groupe reçoit un numéro = sa position gauche->droite
+  # Groupe 1 = premier groupe à gauche du dendrogramme, groupe 2 = suivant, etc.
+  group_labels <- reactive({
+    res <- hc_result()
+    relabel <- setNames(seq_along(dendro_cluster_order()), dendro_cluster_order()) # id brut -> 1..k
+    new <- unname(relabel[as.character(res$groups)])
+    names(new) <- names(res$groups)     # noms = relevés
+    new[rownames(res$mat)]               # aligné sur l'ordre des relevés
+  })
+  
+  # Affectation factorielle de chaque relevé (niveaux 1..k, triés de gauche à droite)
+  cluster_membership <- reactive({
+    factor(group_labels(), levels = as.character(seq_len(input$n_clusters)))
+  })
+  
+  # Palette : une couleur par numéro de groupe 1..k (gauche->droite)
+  group_palette <- reactive({
+    setNames(grDevices::rainbow(input$n_clusters), as.character(seq_len(input$n_clusters)))
+  })
+  
+  # Couleurs utilisées pour le dessin des rectangles du dendrogramme (ordre dendro)
+  # NB : fviz_dend attribue lui-même ses couleurs internes par groupe de coupe.
+  ordered_colors <- reactive({
+    grDevices::rainbow(input$n_clusters)[dendro_cluster_order()]
   })
   
   output$clustering_plot <- renderPlot({
-    mat <- data_pivoted()
-    dist_mat <- vegdist(mat, method = "bray")
-    clust <- hclust(dist_mat, method = "ward.D2")
-    
+    res <- hc_result()
     fviz_dend(
-      clust,
+      as.dendrogram(res$clust),
       k = input$n_clusters,
-      k_colors = rep("black", input$n_clusters),  # Couleur des labels des clusters
-      color_labels_by_k = FALSE,                  # Ne pas colorier les labels par cluster
-      rect = TRUE,                                # Afficher les rectangles
-      rect_border = colors(),                     # Couleurs des bords des rectangles
-      rect_fill = FALSE,                          # Pas de remplissage
-      rect_lty = 1,                               # Ligne pleine pour les bords
-      ggtheme = theme_minimal(),                  # Thème minimaliste
-      main = "Classification hiérarchique (Bray-Curtis)"
+      k_colors = "black",
+      color_labels_by_k = FALSE,
+      rect = TRUE,
+      rect_fill = TRUE,
+      rect_border = ordered_colors(),
+      rect_lty = 1,
+      ggtheme = theme(
+        plot.background = element_rect(fill = "#f4f8f9", color = NA),
+        panel.background = element_rect(fill = "#f4f8f9", color = "darkgreen"),
+        text = element_text(family = "sans", color = "darkgreen"),
+        axis.text.y = element_text(size = 10, color = "black"),
+        plot.title = element_text(hjust = 0.5, face = "bold", size = 14),
+        panel.grid = element_blank()
+      ),
+      main = "Classification Ascendante Hiérarchique"
     )
   })
   
- 
   output$nmds_plot <- renderPlot({
-    mat <- data_pivoted()
-    groups <- factor(cluster_membership())
+    mat <- hc_result()$mat
+    groups <- cluster_membership()
     nmds <- metaMDS(mat, k = 2, trymax = 100, autotransform = FALSE)
     nmds_sites <- as.data.frame(scores(nmds, display = "sites"))
     nmds_sites$label <- rownames(nmds_sites)
@@ -162,7 +199,7 @@ server <- function(input, output, session) {
     
     ggplot(nmds_sites, aes(x = NMDS1, y = NMDS2)) +
       geom_point(aes(color = Groupe), size = 3) +
-      scale_color_manual(values = colors()) +  # <-- Ajout des couleurs personnalisées
+      scale_color_manual(values = ordered_colors()) +
       ggrepel::geom_text_repel(aes(label = label), size = 3, max.overlaps = 100) +
       labs(title = "Ordination NMDS",
            subtitle = paste("Stress:", stress_val),
@@ -173,8 +210,8 @@ server <- function(input, output, session) {
   
   
   output$indval_table <- renderDT({
-    mat <- data_pivoted()
-    groups <- factor(cluster_membership())
+    mat <- hc_result()$mat
+    groups <- cluster_membership()          # numérotés 1..k (gauche->droite)
     if (length(unique(groups)) < 2) {
       return(datatable(data.frame(Message = "Moins de 2 groupes détectés")))
     }
@@ -193,11 +230,14 @@ server <- function(input, output, session) {
   })
   
   output$groupe_releves_table <- renderDT({
-    clusters <- cluster_membership()
+    clusters <- cluster_membership()       # factor, niveaux ordonnés 1..k
     df_groupes <- data.frame(Releve = names(clusters), Groupe = clusters)
-    df_summary <- df_groupes %>% 
-      group_by(Groupe) %>% 
-      summarise(Relevés = paste(Releve, collapse = ", "))
+    df_summary <- df_groupes %>%
+      group_by(Groupe) %>%
+      summarise(Relevés = paste(Releve, collapse = ", ")) %>%
+      ungroup()
+    # Les groupes sont affichés dans l'ordre 1..k = gauche->droite du dendrogramme
+    df_summary <- df_summary[order(as.numeric(as.character(df_summary$Groupe))), , drop = FALSE]
     datatable(df_summary, options = list(pageLength = 5))
   })
   
@@ -206,8 +246,8 @@ server <- function(input, output, session) {
       paste0("especes_caracteristiques_", Sys.Date(), ".csv")
     },
     content = function(file) {
-      mat <- data_pivoted()
-      groups <- factor(cluster_membership())
+      mat <- hc_result()$mat
+      groups <- cluster_membership()
       indval_res <- multipatt(mat, groups, func = "IndVal.g", duleg = TRUE, control = how(nperm = 999))
       indval_df <- as.data.frame(indval_res$sign)
       indval_df$Espèce <- rownames(indval_df)
@@ -230,10 +270,12 @@ server <- function(input, output, session) {
       # 1. Création du tableau "Détail" (Non aggrégé : Relevé | Groupe)
       df_detail <- data.frame(Releve = names(clusters), Groupe = clusters)
       
-      # 2. Création du tableau "Résumé" (Aggrégé)
-      df_summary <- df_detail %>% 
-        group_by(Groupe) %>% 
-        summarise(Relevés = paste(Releve, collapse = ", "))
+      # 2. Création du tableau "Résumé" (Aggrégé), trié 1..k
+      df_summary <- df_detail %>%
+        group_by(Groupe) %>%
+        summarise(Relevés = paste(Releve, collapse = ", ")) %>%
+        ungroup()
+      df_summary <- df_summary[order(as.numeric(as.character(df_summary$Groupe))), , drop = FALSE]
       
       # 3. Création du fichier Excel avec openxlsx
       wb <- createWorkbook()

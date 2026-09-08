@@ -52,7 +52,7 @@ data_releve = data_releve %>% mutate(abondance_dominance = case_when(
 
 # Filtrer les données utiles
 # Exemple ne choisir que certains relevés
-data_releve_filtre = data_releve %>% filter(releve %in% c("R27","R20"))
+data_releve_filtre = data_releve %>% filter(releve %in% c("R14","R5","R22"))
 # Visualisation de données
 
 # Création de graphiques heatmap pour visualiser les similitudes des relevés
@@ -108,9 +108,6 @@ cah_result <- hclust(distance_matrix, method = "ward.D2")
   num_groups <- 8 # CHOIX DU NOMBRE DE GROUPE
   groups <- cutree(cah_result, k = num_groups)
   
-  # Convertir les groupes en facteur
-  groups <- factor(groups)
-  
   # Assigner des couleurs de base aux groupes (Groupe 1 = couleur 1, etc.)
   my_colors <- rainbow(num_groups)
   
@@ -118,25 +115,40 @@ cah_result <- hclust(distance_matrix, method = "ward.D2")
   leaf_order <- order.dendrogram(as.dendrogram(cah_result))
   groups_in_dendro_order <- groups[leaf_order]
   cluster_order_in_dendro <- unique(groups_in_dendro_order)
+
   
-  # CORRECTION : Assigner les couleurs exactement dans l'ordre d'apparition
-  dendro_colors <- my_colors[cluster_order_in_dendro]
+  # Renumérotation : 1 = 1er groupe à gauche, 2 = 2ème, etc.
+  relabel_map <- setNames(seq_along(cluster_order_in_dendro), as.character(cluster_order_in_dendro))
+  new_groups <- relabel_map[as.character(groups)]  # Remplace les IDs bruts par 1..k
+  names(new_groups) <- names(groups)  # **Conserve les noms des relevés**
+  groups <- factor(new_groups, levels = 1:num_groups)  # Factor avec niveaux 1..k
+  
+  # Couleurs alignées sur l'ordre du dendrogramme
+  dendro_colors <- rainbow(num_groups)[as.numeric(cluster_order_in_dendro)]
   
   # Tracer le dendrogramme
-  library(factoextra)
   fviz_dend(
     cah_result,
     k = num_groups,
-    k_colors = rep("black", num_groups), # Attention au double virgule corrigé ici
-    color_labels_by_k = FALSE,
+    k_colors = "black", # couleur des branches
+    color_labels_by_k = FALSE, # Pas de couleurs pour les étiquettes de relevé
     rect = TRUE,
-    rect_border = dendro_colors, # Utilise les couleurs réordonnées
-    rect_fill = FALSE,           
-    rect_lty = 1,                
-    ggtheme = theme_minimal()
+    rect_fill = TRUE,
+    rect_border = dendro_colors, # couleur des groupes
+    rect_lty = 1,
+    ggtheme = theme(
+      plot.background = element_rect(fill = "#f4f8f9", color = NA),  # Fond gris clair
+      panel.background = element_rect(fill = "#f4f8f9", color = "darkgreen"),
+      text = element_text(family = "sans", color = "darkgreen"),
+      axis.text.y = element_text(size = 10, color = "black"),
+      plot.title = element_text(hjust = 0.5, face = "bold", size = 14),
+      panel.grid = element_blank()  # Supprime les grilles
+    ),
+    main = "Classification Ascendante Hiérarchique"
   )
-
-
+  
+  
+  
 # Exécuter l'analyse NMDS ########################################
 set.seed(124) # pour la reproductibilité
 nmds_result <- metaMDS(data_releve_matrix, k = 2, trymax = 100, autotransform = FALSE)
@@ -152,7 +164,7 @@ nmds_sites$Groupe <- factor(groups[rownames(nmds_sites)], levels = 1:num_groups)
 # Visualisation avec ggplot2
 ggplot(nmds_sites, aes(x = NMDS1, y = NMDS2)) +
   geom_point(aes(color = Groupe), size = 3) +
-  scale_color_manual(values = my_colors) +
+  scale_color_manual(values = dendro_colors) +
   ggrepel::geom_text_repel(aes(label = label), size = 3, max.overlaps = 100) +
   labs(title = "Ordination NMDS",
        subtitle = paste("Stress:", stress_val),
@@ -336,17 +348,15 @@ df_species
 
 # Indice Value ########################################
 
-# Assurez-vous que 'groups' est un facteur
-groups <- factor(groups)
-
 # Utilisez votre matrice de communauté (relevés x espèces), PAS la matrice de distance.
 # Je suppose qu'elle s'appelle 'data_releve_matrix' d'après votre script précédent.
 indval_res <- multipatt(data_releve_matrix, groups, 
                         func = "IndVal.g", 
                         control = how(nperm = 999))
 
-# Extraire le tableau des espèces significatives (p-value <= 0.05 par défaut)
-indval_df <- as.data.frame(indval_res$sign)
+# Extraire le tableau des espèces significatives (p-value <= 0.10)
+indval_df = as.data.frame(indval_res$sign) %>% filter(p.value<=0.1)
+
 
 # Ajouter les noms d'espèces comme une colonne (ils sont dans les noms de lignes)
 indval_df$Espèce <- rownames(indval_df)
