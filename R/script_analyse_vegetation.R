@@ -42,7 +42,7 @@ setwd(dirname(rstudioapi::getActiveDocumentContext()$path))
 # Voici comment importer ces données :
 
 # Exemple de code pour importer des données
-data_releve = read_csv2("../data/data_releve_type.csv")
+data_releve = read_csv2("data_releve_type.csv")
 
 
 data_releve = data_releve %>% mutate(abondance_dominance = case_when(
@@ -50,7 +50,10 @@ data_releve = data_releve %>% mutate(abondance_dominance = case_when(
   TRUE ~ as.numeric(as.character(abondance_dominance))
 ))
 
-# Filtrer les données utiles
+# Filtrer les abondances dominances NAs
+data_releve = data_releve %>% filter(!is.na(abondance_dominance))
+
+# Visualiser des relevés ####
 # Exemple ne choisir que certains relevés
 data_releve_filtre = data_releve %>% filter(releve %in% c("R14","R5","R22"))
 # Visualisation de données
@@ -60,13 +63,14 @@ data_releve_filtre = data_releve %>% filter(releve %in% c("R14","R5","R22"))
 ggplot(data_releve_filtre, aes(x = espece, y = releve, fill = abondance_dominance))+
   geom_tile() +
   scale_fill_gradient(low = "#f8c856", high = "#228822") +  # Ajustez la palette de couleurs selon vos préférences
-  labs(x = "Espèce", y = "Relevé", fill = "Abandance") +
+  labs(x = "Espèce", y = "Relevé", fill = "Abondance") +
   theme_minimal() +
   theme(axis.text.x = element_text(angle = 90, hjust = 1))
 
 
-# Retirer des relevés
-data_releve = data_releve %>% filter(!releve %in% c("R21","R8","R24","R23","R28"))
+# Filtrer les données utiles
+releves_filtre = c("R21","R8","R24","R23","R28")
+data_releve = data_releve %>% filter(!releve %in% releves_filtre)
 
 # Créer une colonne combinée pour strate et espèce
 data_releve_combined <- data_releve %>%
@@ -80,7 +84,7 @@ data_releve_matrix <- data_releve_combined %>%
   pivot_wider(names_from = combination, values_from = abondance_dominance, values_fill = 0) %>%
   column_to_rownames(var = "releve") %>%  as.matrix()  # Assure une conversion en matrice# Remplacer les valeurs manquantes par 0, au cas où
 
-data_releve_matrix[is.na(data_releve_matrix)] = 0
+# data_releve_matrix[is.na(data_releve_matrix)] = 0
 
 # Calculer la matrice des distances de Bray-Curtis
 distance_matrix = vegdist(data_releve_matrix, method = "bray")
@@ -150,7 +154,7 @@ cah_result <- hclust(distance_matrix, method = "ward.D2")
   
   
 # Exécuter l'analyse NMDS ########################################
-set.seed(124) # pour la reproductibilité
+set.seed(8) # pour la reproductibilité
 nmds_result <- metaMDS(data_releve_matrix, k = 2, trymax = 100, autotransform = FALSE)
 stress_val <- round(nmds_result$stress, 3)
 
@@ -172,17 +176,16 @@ ggplot(nmds_sites, aes(x = NMDS1, y = NMDS2)) +
   theme_minimal() +
   coord_equal()
 
-
 # Analyses des données environnementales ########################################
 
 
 # Charger les données environnementales
-env_data <- read_csv2("../data/envdata_releve.csv") # Remplacez par le chemin correct
+env_data <- read_csv2("envdata_releve.csv") # Remplacez par le chemin correct
 env_data = env_data[order(env_data$Nom), ]
 base::rownames(env_data) <- env_data$Nom # Assurez-vous que les lignes sont nommées par les relevés
 
 #Retirer les relevés à retirer : 
-env_data = env_data %>% filter(!Nom %in% c("R21","R8","R24","R23","R28"))%>%
+env_data = env_data %>% filter(!Nom %in% releves_filtre)%>%
   {rownames(.) <- .$Nom; .}
 
 # Ordonner les tableaux de la même manière
@@ -201,7 +204,7 @@ env_data = env_data %>% select(Altitude, Pente,Recouvrement_herbacee,Recouvremen
 #Centrer et réduire les variables
 env_data = as.data.frame(apply(env_data,2,function(x){
   if(is.numeric(x)){
-    x -mean(x,na.rm = TRUE)/sd(x,na.rm=TRUE)
+    (x -mean(x,na.rm = TRUE))/sd(x,na.rm=TRUE)
   } else{x}
 }
   
@@ -246,6 +249,8 @@ sommaire_cca <- summary(cca_result)
 
 # Récupérer le tableau de la contribution des axes contraints
 contribution_axes <- sommaire_cca$concont$importance
+
+barplot(contribution_axes[2,])
 
 # Extraire la proportion de variance expliquée pour les axes 1 et 2
 # et la convertir en pourcentage joliment formaté
@@ -298,7 +303,7 @@ species_scores_cca <- vegan::scores(cca_result, display = "species", choices = c
 species_contrib <- rowSums(species_scores_cca^2)
 
 # Trier et sélectionner les top N
-top_n <- 20 # CHOIX DU NOMBRE D'ESPECE A AFFICHER
+top_n <- 30 # CHOIX DU NOMBRE D'ESPECE A AFFICHER
 top_species <- names(sort(species_contrib, decreasing = TRUE)[1:top_n])
 
 # Filtrer df_species
@@ -343,13 +348,9 @@ permutest(cca_result, permutations = 999)
 summary(cca_result)
 
 
-df_species
-
-
 # Indice Value ########################################
 
 # Utilisez votre matrice de communauté (relevés x espèces), PAS la matrice de distance.
-# Je suppose qu'elle s'appelle 'data_releve_matrix' d'après votre script précédent.
 indval_res <- multipatt(data_releve_matrix, groups, 
                         func = "IndVal.g", 
                         control = how(nperm = 999))
@@ -397,3 +398,6 @@ writeData(wb, "Releves_Par_Groupe", df_summary)
 # Le fichier s'appellera "Resultats_Analyse_Groupes.xlsx"
 saveWorkbook(wb, file = "Resultats_Analyse_Groupes.xlsx", overwrite = TRUE)
 
+# Exporter CSV
+write.csv2(indval_df,"indval_df.csv")
+write.csv2(df_summary,"df_summary.csv")
