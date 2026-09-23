@@ -42,7 +42,7 @@ setwd(dirname(rstudioapi::getActiveDocumentContext()$path))
 # Voici comment importer ces données :
 
 # Exemple de code pour importer des données
-data_releve = read_csv2("data_releve_type.csv")
+data_releve = read_csv2("../data/data_releve_type.csv")
 
 
 data_releve = data_releve %>% mutate(abondance_dominance = case_when(
@@ -91,8 +91,6 @@ distance_matrix = vegdist(data_releve_matrix, method = "bray")
 
 # Effectuer la Classification Ascendante Hiérarchique  ########################################
 cah_result <- hclust(distance_matrix, method = "ward.D2")
-
-
 # Couper le dendrogramme pour obtenir des groupes (par exemple, 3 groupes)
   # Liste des indices à tester
   indices <- c("frey", "mcclain", "cindex", "silhouette", "dunn")
@@ -110,6 +108,12 @@ cah_result <- hclust(distance_matrix, method = "ward.D2")
 
 
   num_groups <- 8 # CHOIX DU NOMBRE DE GROUPE
+  
+  plot(cah_result$height,type ="s")
+  abline(v = num_groups,h = cah_result$height[num_groups],col = "red", lty = 2)
+
+  
+  
   groups <- cutree(cah_result, k = num_groups)
   
   # Assigner des couleurs de base aux groupes (Groupe 1 = couleur 1, etc.)

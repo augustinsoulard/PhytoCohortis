@@ -10,6 +10,7 @@ library(factoextra)
 library(ape)       # Pour la visualisation de l'arbre de classification
 library(data.table) # Pour utiliser dcast()
 library(vegan)     # Pour NMDS et analyse de similarité
+library(NbClust) # pour le nombre de groupe dans la CAH
 library(indicspecies) # Pour les espèces indicatrices avec multipatt()
 
 # Fonction pour convertir les codes Braun-Blanquet en valeurs numériques (ex: '+' = 1, '1' = 2, etc.)
@@ -34,7 +35,15 @@ ui <- navbarPage("Application Phytosociologique",
                               tabsetPanel(
                                 tabPanel("Données brutes (head)", tableOutput("data_head")),
                                 tabPanel("Données pivotées", DTOutput("pivoted_data"),downloadButton("download_pivoted", "Télécharger les données pivotées")),
-                                tabPanel("Classification", plotOutput("clustering_plot")),
+                                tabPanel("Classification",
+                                         plotOutput("clustering_plot"),
+                                         br(),
+                                         h4("Niveaux de fusion (aide au choix de la coupe)"),
+                                         plotOutput("inertia_plot"),
+                                         br(),
+                                         h4("Nombre optimal de groupes (NbClust)"),
+                                         verbatimTextOutput("nbclust_text")
+                                ),
                                 tabPanel("Ordination (NMDS)", plotOutput("nmds_plot")),
                                 tabPanel("Espèces caractéristiques",
                                          HTML("<p><strong>Définition :</strong> Cette section utilise la fonction <code>multipatt()</code> du package <code>indicspecies</code> pour identifier les espèces les plus représentatives (indicatrices) des groupes de relevés définis par la classification hiérarchique. Elle calcule pour chaque espèce un score combinant sa fidélité (présence fréquente dans un groupe) et sa spécificité (présence exclusive dans ce groupe). Même sans p-value significative, une forte valeur d'indice peut indiquer une affinité marquée avec un groupe.</p>"),
@@ -122,11 +131,71 @@ server <- function(input, output, session) {
   # ---------------------------------------------------------------------------
   # CLASSIFICATION DE REFERENCE (une seule fois, partagée par tous les affichages)
   # ---------------------------------------------------------------------------
+  # Bray-Curtis : une seule fois, réutilisé partout
+  bray_dist <- reactive({
+    req(data_pivoted())
+    vegdist(data_pivoted(), method = "bray")
+  })
+  
+  # CAH aussi mise en cache : changer le nombre de groupes
+  hc_clust <- reactive({
+    hclust(bray_dist(), method = "ward.D2")
+  })
+  
+  # --------
+  # NBCLUST : détermination du nombre optimal de groupes
+  # --------
+  nbclust_result <- eventReactive(input$run, {
+    mat <- data_pivoted()
+    dist_mat <- bray_dist()
+    
+    indices <- c("frey", "mcclain", "cindex", "silhouette", "dunn")
+    
+    best_nc_list <- lapply(indices, function(idx) {
+      tryCatch({
+        # capture.output() intercepte tout ce que NbClust imprime (cat, message, warning)
+        invisible(capture.output(
+          res <- NbClust(diss = dist_mat, distance = NULL, method = "ward.D2",
+                         index = idx, min.nc = 2, max.nc = 30)$Best.nc
+        ))
+        res
+      },
+      error = function(e) NA
+      )
+    })
+    
+    names(best_nc_list) <- indices
+    best_nc_list
+  })
+  # Affichage du résultat
+  output$nbclust_text <- renderPrint({
+    res <- nbclust_result()
+    
+    # Affiche une ligne par indice
+    for (idx in names(res)) {
+      x <- res[[idx]]
+      if (length(x) == 1 && is.na(x)) {
+        cat(sprintf("%-12s : échec du calcul\n", idx))
+      } else {
+        cat(sprintf("%-12s : %s groupes (critère = %s)\n",
+                    idx, x[1], x[2]))
+      }
+    }
+    
+    # Nombre optimal
+    nb_values <- sapply(res, function(x) {
+      if (length(x) == 1 && is.na(x)) NA else as.numeric(x[1])
+    })
+    nb_values <- na.omit(nb_values)
+    if (length(nb_values) > 0) {
+      cat("\n Nombre optimal :", names(which.max(table(nb_values))), "groupes\n")
+    }
+  })
+  
   # Renvoie une liste :  hclust object + matrice + attributs de coupure
   hc_result <- reactive({
     mat <- data_pivoted()
-    dist_mat <- vegdist(mat, method = "bray")
-    clust <- hclust(dist_mat, method = "ward.D2")
+    clust <- hc_clust()
     groups <- cutree(clust, k = input$n_clusters)          # ids BRUTS de cutree
     leaf_order <- order.dendrogram(as.dendrogram(clust))   # ordre des feuilles (gauche->droite)
     list(mat = mat, clust = clust, groups = groups, leaf_order = leaf_order)
@@ -187,10 +256,32 @@ server <- function(input, output, session) {
     )
   })
   
+  # Diagramme en escalier des hauteurs de fusion (aide au choix du nombre de groupes)
+  output$inertia_plot <- renderPlot({
+    cah_result <- hc_clust()
+    n <- length(cah_result$height)      # nombre de fusions = nb_releves - 1
+    nb_releves <- n + 1
+    
+    # Axe x = nombre de groupes restants après la fusion (n-1, n-2, ..., 1)
+    plot(x = (nb_releves - 1):1,
+         y = cah_result$height,
+         type = "s",
+         main = "Niveaux de fusion de la CAH",
+         xlab = "Nombre de groupes",
+         ylab = "Hauteur de fusion",
+         col = "darkgreen", lwd = 2)
+    
+    # Marqueur de coupe pour le k choisi : position x = k
+    num_groups <- input$n_clusters
+    abline(v = num_groups,
+           h = cah_result$height[nb_releves - num_groups],
+           col = "red", lty = 2)
+  })
+  
   output$nmds_plot <- renderPlot({
     mat <- hc_result()$mat
     groups <- cluster_membership()
-    nmds <- metaMDS(mat, k = 2, trymax = 100, autotransform = FALSE)
+    nmds <- metaMDS(bray_dist(), k = 2, trymax = 100, autotransform = FALSE)
     nmds_sites <- as.data.frame(scores(nmds, display = "sites"))
     nmds_sites$label <- rownames(nmds_sites)
     nmds_sites$Groupe <- groups[rownames(nmds_sites)]
