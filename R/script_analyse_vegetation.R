@@ -22,6 +22,7 @@ library(tibble)  # Création et manipulation de tibbles (data frames modernes)
 # Import/export des données
 library(readr)    # Lecture de fichiers (CSV, TSV, etc.)
 library(openxlsx) # Écriture et lecture de fichiers Excel (.xlsx)
+library(readODS) # Écriture et lecture de fichiers Libre Office calc (.ods)
 
 # Visualisation
 library(ggplot2)  # Création de graphiques statistiques
@@ -405,3 +406,165 @@ saveWorkbook(wb, file = "Resultats_Analyse_Groupes.xlsx", overwrite = TRUE)
 # Exporter CSV
 write.csv2(indval_df,"indval_df.csv")
 write.csv2(df_summary,"df_summary.csv")
+
+
+# ___________________________________________
+# TWINSPAN ----------------------------------
+#____________________________________________
+# install.packages("twinspan",repos = c("https://jarioksa.r-universe.dev", "https://cloud.r-project.org"))
+
+# chargement du package
+library(twinspan)
+# On repart de la matrice especes x releves
+# Application de twinspan
+tw <- twinspan(data_releve_matrix,   # data.frame ou matrix
+                cutlevels = c(0, 0.5, 5, 25, 50, 75),
+                levmax = 6,        # profondeur max de divisions
+                groupmin = 5)      # taille minimale d'un groupe divisible)  # pseudo-espèces
+      
+                     
+plot(tw, height = "chi",main = "Roleček et al. 2009")   # dendrogramme des divisions
+summary(tw)
+
+cl_modified <- cuth(tw, ngroups = 10)   # clusters selon Roleček et al. 2009
+
+## --- Ordre phytosociologique (celui de twintable) ---
+ord_quad <- tw$quadrat$index     # ordre des relevés
+ord_spec <- tw$species$index     # ordre des espèces
+
+tab <- t(data_releve_matrix[ord_quad, ord_spec])  # espèces en lignes, relevés en colonnes
+tab <- as.data.frame(tab)
+tab$espece <- rownames(tab)        # les noms d'espèces doivent être une colonne
+tab <- tab[, c("espece", setdiff(names(tab), "espece"))]
+
+# Séparation espece / strate (sur le DERNIER underscore du nom)
+tab$strate <- sub("^.*_", "", tab$espece)      # ce qui suit le dernier _
+tab$espece <- sub("_[^_]*$", "", tab$espece)   # le nom sans le suffixe
+
+# Mettre la colonne strate en 2e position
+tab <- tab[, c("espece", "strate", setdiff(names(tab), c("espece", "strate")))]
+
+## --- Conversion : 0 -> "", 0.5 -> "+", le reste en caractère ---
+tab_disp <- tab
+
+num_cols <- vapply(tab_disp, is.numeric, logical(1))
+tab_disp[num_cols] <- lapply(tab_disp[num_cols], function(col) {
+  out <- as.character(col)
+  out[!is.na(col) & col == 0]   <- ""    # absences -> cellule vide
+  out[!is.na(col) & col == 0.5] <- "+"   # "+" de Braun-Blanquet
+  out[is.na(col)]               <- ""    # NA éventuels -> vide aussi
+  out
+})
+
+tab_disp <- as.data.frame(tab_disp, stringsAsFactors = FALSE)
+
+
+## --- Feuille 2 : appartenance des relevés ---
+releves <- data.frame(
+  releve  = rownames(data_releve_matrix)[ord_quad],
+  cluster = as.integer(cl_modified[ord_quad])
+)
+
+## --- Feuille 3 : hétérogénéité des groupes (choix du k) ---
+chi_vec <- twintotalchi(tw)
+
+hetero <- data.frame(
+  groupe = seq_along(chi_vec),   # n° du groupe (ou de la division)
+  chi    = as.numeric(chi_vec)
+)
+
+## --- Feuille 4 : historique des divisions (valeurs propres, indicateurs) ---
+divisions <- capture.output(summary(tw))
+
+## --- Export XLSX multi-feuilles ---
+
+# --- Styles ---
+# fond vert clair peu saturé pour les cellules non vides
+fill_vert <- "#C8E6C9"          # vert clair désaturé ; alternative : "#D4EAD4"
+style_cell <- createStyle(
+  fgFill        = fill_vert,
+  halign        = "center",
+  fontSize      = 9,
+  borderColour  = "#B0B0B0",
+  border        = c("top", "bottom", "left", "right")
+)
+# en-têtes (noms d'espèces + noms de relevés)
+style_header <- createStyle(
+  textDecoration = "bold",
+  fgFill          = "#E8E8E8",
+  halign          = "center",
+  border          = "Bottom",
+  borderColour    = "#404040"
+)
+# colonne des noms d'espèces
+style_especes <- createStyle(
+  textDecoration = "bold",
+  fontSize        = 9,
+  halign          = "left"
+)
+
+# ---  Classeur ---
+wb <- createWorkbook()
+
+# ---- Feuille 1 : Tableau ----
+addWorksheet(wb, "Tableau")
+writeData(wb, "Tableau", tab_disp, rowNames = FALSE)
+
+# en-têtes (ligne 1, colonne 2..n ; colonne 1 = "espece")
+addStyle(wb, "Tableau", style_header,
+         rows = 1, cols = 1:ncol(tab_disp), gridExpand = TRUE)
+# noms d'espèces (colonne 1, lignes 2..n)
+addStyle(wb, "Tableau", style_especes,
+         rows = 2:(nrow(tab_disp) + 1), cols = 1, gridExpand = TRUE)
+
+# cellules non vides -> fond vert : on parcourt la matrice logique
+
+# matrice logique : une cellule est "remplie" si elle n'est ni vide ni NA
+char_mat <- as.matrix(tab_disp[, -(1:2)])   # toutes les colonnes SAUF espece (1) et strate (2)
+non_vide <- !is.na(char_mat) & char_mat != ""
+
+# positions réelles des colonnes de relevés dans la feuille : 3..n
+num_pos <- 3:ncol(tab_disp)
+
+for (i in seq_len(nrow(non_vide))) {
+  cols_remplies <- which(non_vide[i, ])
+  if (length(cols_remplies) > 0) {
+    addStyle(wb, "Tableau", style_cell,
+             rows = i + 1,
+             cols = num_pos[cols_remplies],
+             gridExpand = FALSE)
+  }
+}
+
+# largeurs : espèces larges, relevés étroits
+setColWidths(wb, "Tableau", cols = 1, widths = 30)
+setColWidths(wb, "Tableau", cols = 2:(ncol(tab_disp)), widths = 7)
+
+# figer la première ligne et la première colonne
+freezePane(wb, "Tableau", firstActiveRow = 2, firstActiveCol = 2)
+
+# ---- Feuille 2 : Relevés / clusters ----
+addWorksheet(wb, "releves_clusters")
+writeData(wb, "releves_clusters", releves)
+addStyle(wb, "releves_clusters", style_header,
+         rows = 1, cols = 1:2, gridExpand = TRUE)
+setColWidths(wb, "releves_clusters", cols = 1:2, widths = c(20, 10))
+
+# ---- Feuille 3 : Hétérogénéité ----
+hetero <- hetero[order(-hetero$chi), ]   # tri par hétérogénéité décroissante
+addWorksheet(wb, "heterogeneite")
+writeData(wb, "heterogeneite", hetero)
+addStyle(wb, "heterogeneite", style_header,
+         rows = 1, cols = 1:2, gridExpand = TRUE)
+setColWidths(wb, "heterogeneite", cols = 1:2, widths = c(12, 12))
+
+# ---- Feuille 4 : Divisions (sortie summary) ----
+addWorksheet(wb, "divisions")
+writeData(wb, "divisions",
+          data.frame(ligne = seq_along(divisions), texte = divisions))
+setColWidths(wb, "divisions", cols = 1, widths = 8)
+setColWidths(wb, "divisions", cols = 2, widths = 110)
+
+# ---  Sauvegarde ---
+saveWorkbook(wb, "tableau_phytosociologique.xlsx", overwrite = TRUE)
+
