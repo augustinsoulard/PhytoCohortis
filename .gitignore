@@ -5,3 +5,7 @@
 .Rhistory
 .RData
 .Ruser/
+R/renv/
+R/rsconnect/
+R/renv.lock
+R/.Rprofile

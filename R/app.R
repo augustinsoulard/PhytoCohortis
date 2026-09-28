@@ -12,15 +12,151 @@ library(data.table) # Pour utiliser dcast()
 library(vegan)     # Pour NMDS et analyse de similarité
 library(NbClust) # pour le nombre de groupe dans la CAH
 library(indicspecies) # Pour les espèces indicatrices avec multipatt()
+# --- TWINSPAN (hors CRAN) : installer si absent, puis charger ---
+if (!requireNamespace("twinspan", quietly = TRUE)) {
+  install.packages("twinspan",
+                   repos = c("https://jarioksa.r-universe.dev",
+                             "https://cloud.r-project.org"))
+}
+library(twinspan)
 
 # Fonction pour convertir les codes Braun-Blanquet en valeurs numériques (ex: '+' = 1, '1' = 2, etc.)
 convert_bb <- function(x) {
-  bb_codes <- c("+" = 1, "1" = 2, "2" = 3, "3" = 4, "4" = 5, "5" = 6)
+  bb_codes <- c("+" = 0.5, "1" = 1, "2" = 2, "3" = 3, "4" = 4, "5" = 5)
   return(as.numeric(bb_codes[as.character(x)]))
 }
 
+# Style de l'interface
+
+
 # Interface utilisateur principale (barre de navigation)
-ui <- navbarPage("Application Phytosociologique",
+ui <- tagList(tags$head(tags$style(HTML("
+    /* ============================================================
+       BARRE DE NAVIGATION (haut de page) : orange / blanc,
+       sélection orange clair / écriture BLANCHE
+       ============================================================ */
+    .navbar-default { background-color: #f17c20; border-color: #f17c20; }
+    .navbar-default .navbar-brand { color: #ffffff; font-weight: bold; }
+    .navbar-default .navbar-nav > li > a { color: #ffffff; }
+    .navbar-default .navbar-nav > li > a:hover,
+    .navbar-default .navbar-nav > li > a:focus {
+      background-color: #ffb276; color: #ffffff; }
+    .navbar-default .navbar-nav > .active > a,
+    .navbar-default .navbar-nav > .active > a:hover,
+    .navbar-default .navbar-nav > .active > a:focus {
+      background-color: #ffb276; color: #ffffff;
+      border-bottom: 3px solid #ffffff; font-weight: bold; }
+
+    /* ============================================================
+       BOUTONS : vert foncé, texte blanc, survol vert clair
+       ============================================================ */
+    .btn-success {
+      background-color: #275c0a; border-color: #275c0a; color: #ffffff; }
+    .btn-success:hover, .btn-success:active, .btn-success:focus {
+      background-color: #aade8e; border-color: #aade8e; color: #ffffff; }
+    .btn-default {
+      background-color: #275c0a; border-color: #275c0a; color: #ffffff; }
+    .btn-default:hover, .btn-default:active, .btn-default:focus {
+      background-color: #aade8e; border-color: #aade8e; color: #ffffff; }
+    a.download-button, .btn.shiny-download-link {
+      background-color: #275c0a; border-color: #275c0a; color: #ffffff; }
+    a.download-button:hover, .btn.shiny-download-link:hover {
+      background-color: #aade8e; border-color: #aade8e; color: #ffffff; }
+
+    /* ============================================================
+       ONGLETS INTERNES (tabsetPanel) : orange / blanc,
+       sélection orange clair / écriture BLANCHE
+       ============================================================ */
+    .nav-tabs { border-bottom: 2px solid #f17c20; }
+    .nav-tabs > li > a {
+      background-color: #f17c20; color: #ffffff;
+      border: 1px solid #f17c20; margin-right: 2px; }
+    .nav-tabs > li > a:hover,
+    .nav-tabs > li > a:focus {
+      background-color: #ffb276; color: #ffffff;
+      border: 1px solid #ffb276; }
+    .nav-tabs > li.active > a,
+    .nav-tabs > li.active > a:hover,
+    .nav-tabs > li.active > a:focus {
+      background-color: #ffb276; color: #ffffff;
+      border: 1px solid #ffb276;
+      border-bottom: 2px solid #ffffff;   /* effet 'ouvert' vers le contenu */
+      font-weight: bold; }
+
+    /* ============================================================
+       CASES À COCHER : case verte cochée, texte vert foncé
+       ============================================================ */
+    /* la case native est masquée (elle est DANS le label) */
+    .checkbox input[type='checkbox'],
+    .checkbox-inline input[type='checkbox'] {
+      opacity: 0; position: absolute; margin-left: 0; }
+    .checkbox label, .checkbox-inline label {
+      position: relative; padding-left: 24px;
+      cursor: pointer; color: #275c0a; display: inline-block; }
+    /* la case dessinée */
+    .checkbox label::before,
+    .checkbox-inline label::before {
+      content: ''; position: absolute; left: 0; top: 2px;
+      width: 16px; height: 16px;
+      background-color: #ffffff;
+      border: 2px solid #275c0a; border-radius: 3px; }
+    /* ÉTAT COCHÉ : le label CONTIENT une case cochée -> :has() */
+    .checkbox label:has(input:checked)::before,
+    .checkbox-inline label:has(input:checked)::before {
+      background-color: #275c0a; border-color: #275c0a; }
+    .checkbox label:has(input:checked)::after,
+    .checkbox-inline label:has(input:checked)::after {
+      content: ''; position: absolute; left: 5px; top: 3px;
+      width: 6px; height: 10px;
+      border: solid #ffffff; border-width: 0 3px 3px 0;
+      -webkit-transform: rotate(45deg); transform: rotate(45deg); }
+    /* survol : liseré orange */
+    .checkbox label:hover::before,
+    .checkbox-inline label:hover::before {
+      border-color: #f17c20; }
+
+       /* ============================================================
+       CHARGEMENT DE FICHIER (fileInput) + BARRE DE PROGRESSION
+       ============================================================ */
+    /* conteneur du fileInput */
+    .shiny-input-container .form-control {
+      border: 1px solid #aade8e !important;
+      color: #275c0a !important;
+      background-color: #ffffff !important; }
+
+    /* bouton 'Parcourir...' */
+    .shiny-input-container .btn-file,
+    .shiny-input-container .btn-default.btn-file {
+      background-color: #275c0a !important;
+      border-color: #275c0a !important;
+      color: #ffffff !important; }
+    .shiny-input-container .btn-file:hover,
+    .shiny-input-container .btn-file:active,
+    .shiny-input-container .btn-file:focus {
+      background-color: #aade8e !important;
+      border-color: #aade8e !important;
+      color: #ffffff !important; }
+
+    /* BARRE DE PROGRESSION de l'upload : verte au lieu de bleue */
+    .shiny-file-input-progress .progress {
+      background-color: #e3efdd;      /* fond de la barre, vert très clair */
+      border: 1px solid #aade8e; }
+    .shiny-file-input-progress .progress-bar {
+      background-color: #275c0a !important;   /* remplissage vert foncé */
+      color: #ffffff; }
+    .shiny-file-input-progress .progress-bar.bar-success {
+      background-color: #aade8e !important;  /* état 'upload terminé' */
+      color: #275c0a !important; }
+
+    /* libellés */
+    .shiny-input-container .control-label {
+      color: #275c0a; font-weight: bold; }
+
+    /* ---- TITRES ---- */
+    h4, .h4 { color: #275c0a; }
+"))
+),navbarPage(title =div("PhytoCohortis",
+                        HTML('&nbsp;&nbsp;<span style="color:#ffffff;font-size:13px;font-style:italic;">— par Augustin Soulard</span>')),
                  
                  # Onglet principal pour l'analyse
                  tabPanel("Analyse",
@@ -52,7 +188,29 @@ ui <- navbarPage("Application Phytosociologique",
                                          downloadButton("download_indval", "Télécharger les espèces caractéristiques"),
                                          downloadButton("download_groupes", "Télécharger les relevés par groupe")
                                 )
+
                               )
+                            )
+                          )
+                 ),
+                 tabPanel("TWINSPAN",
+                          fluidRow(
+                            column(3,
+                                   numericInput("twin_ngroups", "Nombre de groupes (cuth, Roleček 2009):",
+                                                value = 4, min = 2, max = 30),
+                                   numericInput("twin_levmax", "Profondeur max de divisions (levmax):",
+                                                value = 6, min = 1, max = 15),
+                                   numericInput("twin_groupmin", "Taille min. d'un groupe divisible (groupmin):",
+                                                value = 5, min = 2),
+                                   actionButton("twin_run", "Lancer TWINSPAN", class = "btn-success")
+                            ),
+                            column(9,
+                                   h4("Dendrogramme (hétérogénéité des groupes — Roleček et al. 2009)"),
+                                   plotOutput("twin_dendro"),
+                                   br(),
+                                   h4("Historique des divisions"),
+                                   verbatimTextOutput("twin_summary"),
+                                   downloadButton("twin_download_xlsx", "Télécharger le tableau phytosociologique (XLSX)")
                             )
                           )
                  ),
@@ -61,8 +219,9 @@ ui <- navbarPage("Application Phytosociologique",
                  tabPanel("Liste des espèces par relevé",
                           DTOutput("especes_par_releve")
                  )
+                 
+  )
 )
-
 # Partie serveur de l'application
 server <- function(input, output, session) {
   
@@ -399,6 +558,171 @@ server <- function(input, output, session) {
       filter = 'top'
     )
   })
+  
+  # TWINSPAN ----
+  # ---------------------------------------------------------------------------
+  # TWINSPAN (modifié, Roleček et al. 2009)
+  # ---------------------------------------------------------------------------
+  
+  # --- Analyse TWINSPAN : lancée par le bouton, dépend de data_pivoted() ---
+  twin_res <- eventReactive(input$twin_run, {
+    mat <- data_pivoted()
+    req(nrow(mat) >= 5, ncol(mat) >= 2)
+    
+    tw <- twinspan(mat,
+                   cutlevels = c(0, 1, 2, 3, 4, 5),  # 1 pseudo-espèce / classe BB (convert_bb : 1..6)
+                   levmax    = input$twin_levmax,
+                   groupmin  = input$twin_groupmin)
+    tw
+  })
+  
+  # --- Clusters selon la hiérarchie d'hétérogénéité (cuth) ---
+  # nb de groupes borné au nombre de divisions réellement effectuées
+  twin_clusters <- reactive({
+    tw <- twin_res()
+    req(tw)
+    nmax <- length(unique(tw$quadrat$iclass))
+    k <- min(input$twin_ngroups, nmax)
+    cuth(tw, ngroups = k)
+  })
+  
+  # --- Tableau phytosociologique ordonné + feuilles annexes ---
+  twin_outputs <- reactive({
+    tw        <- twin_res()
+    mat       <- data_pivoted()
+    cl_mod    <- twin_clusters()
+    req(tw, mat, cl_mod)
+    
+    ord_quad <- tw$quadrat$index
+    ord_spec <- tw$species$index
+    
+    # tableau espèces x relevés dans l'ordre TWINSPAN
+    tab <- t(mat[ord_quad, ord_spec])
+    tab <- as.data.frame(tab, stringsAsFactors = FALSE)
+    tab$espece <- rownames(tab)
+    tab <- tab[, c("espece", setdiff(names(tab), "espece"))]
+    
+    # séparation espece / strate (dernier underscore)
+    tab$strate <- sub("^.*_", "", tab$espece)
+    tab$espece <- sub("_[^_]*$", "", tab$espece)
+    tab <- tab[, c("espece", "strate", setdiff(names(tab), c("espece", "strate")))]
+    
+    # version affichage : 0 -> "", 1 -> "+" (le "+" de convert_bb vaut 1)
+    tab_disp <- tab
+    num_cols <- vapply(tab_disp, is.numeric, logical(1))
+    tab_disp[num_cols] <- lapply(tab_disp[num_cols], function(col) {
+      out <- as.character(col)
+      out[!is.na(col) & col == 0] <- ""
+      out[!is.na(col) & col == 0.5] <- "+"   # valeur 1 = code "+" d'origine
+      out[is.na(col)]             <- ""
+      out
+    })
+    
+    # feuille 2 : relevés / clusters
+    releves <- data.frame(
+      releve  = rownames(mat)[ord_quad],
+      cluster = as.integer(cl_mod[ord_quad])
+    )
+    
+    # feuille 3 : hétérogénéité
+    chi_vec <- twintotalchi(tw)
+    hetero <- data.frame(
+      groupe = seq_along(chi_vec),
+      chi    = as.numeric(chi_vec)
+    )
+    hetero <- hetero[order(-hetero$chi), ]
+    
+    # feuille 4 : divisions
+    divisions <- capture.output(summary(tw))
+    
+    list(tab = tab, tab_disp = tab_disp, releves = releves,
+         hetero = hetero, divisions = divisions)
+  })
+  
+  # --- Dendrogramme height = "chi" (méthode modifiée) ---
+  output$twin_dendro <- renderPlot({
+    tw <- twin_res()
+    req(tw)
+    par(mar = c(3, 4, 2, 1))
+    plot(tw, height = "chi", main = "TWINSPAN modifié (Roleček et al. 2009)")
+  })
+  
+  # --- Résumé des divisions ---
+  output$twin_summary <- renderPrint({
+    tw <- twin_res()
+    req(tw)
+    cat(paste(twin_outputs()$divisions, collapse = "\n"))
+  })
+  
+  # --- Téléchargement XLSX multi-feuilles stylé ---
+  output$twin_download_xlsx <- downloadHandler(
+    filename = function() paste0("tableau_twinspan_", Sys.Date(), ".xlsx"),
+    content = function(file) {
+      out <- twin_outputs()
+      
+      style_cell <- openxlsx::createStyle(
+        fgFill = "#C8E6C9", halign = "center", fontSize = 9,
+        borderColour = "#B0B0B0",
+        border = c("top", "bottom", "left", "right"))
+      style_header <- openxlsx::createStyle(
+        textDecoration = "bold", fgFill = "#E8E8E8", halign = "center",
+        border = "Bottom", borderColour = "#404040")
+      style_especes <- openxlsx::createStyle(
+        textDecoration = "bold", fontSize = 9, halign = "left")
+      
+      wb <- openxlsx::createWorkbook()
+      
+      # ---- Feuille 1 : Tableau ----
+      openxlsx::addWorksheet(wb, "Tableau")
+      openxlsx::writeData(wb, "Tableau", out$tab_disp, rowNames = FALSE)
+      openxlsx::addStyle(wb, "Tableau", style_header,
+                         rows = 1, cols = 1:ncol(out$tab_disp), gridExpand = TRUE)
+      openxlsx::addStyle(wb, "Tableau", style_especes,
+                         rows = 2:(nrow(out$tab_disp) + 1), cols = 1:2,
+                         gridExpand = TRUE)
+      
+      # vert uniquement sur les cellules remplies (colonnes 3..n = relevés)
+      char_mat <- as.matrix(out$tab_disp[, -(1:2)])
+      non_vide <- !is.na(char_mat) & char_mat != ""
+      num_pos  <- 3:ncol(out$tab_disp)
+      for (i in seq_len(nrow(non_vide))) {
+        cols_remplies <- which(non_vide[i, ])
+        if (length(cols_remplies) > 0) {
+          openxlsx::addStyle(wb, "Tableau", style_cell,
+                             rows = i + 1,
+                             cols = num_pos[cols_remplies],
+                             gridExpand = FALSE)
+        }
+      }
+      openxlsx::setColWidths(wb, "Tableau", cols = 1, widths = 30)
+      openxlsx::setColWidths(wb, "Tableau", cols = 2:(ncol(out$tab_disp)), widths = 7)
+      openxlsx::freezePane(wb, "Tableau", firstActiveRow = 2, firstActiveCol = 3)
+      
+      # ---- Feuille 2 : relevés / clusters ----
+      openxlsx::addWorksheet(wb, "releves_clusters")
+      openxlsx::writeData(wb, "releves_clusters", out$releves)
+      openxlsx::addStyle(wb, "releves_clusters", style_header,
+                         rows = 1, cols = 1:2, gridExpand = TRUE)
+      openxlsx::setColWidths(wb, "releves_clusters", cols = 1:2, widths = c(20, 10))
+      
+      # ---- Feuille 3 : hétérogénéité ----
+      openxlsx::addWorksheet(wb, "heterogeneite")
+      openxlsx::writeData(wb, "heterogeneite", out$hetero)
+      openxlsx::addStyle(wb, "heterogeneite", style_header,
+                         rows = 1, cols = 1:2, gridExpand = TRUE)
+      openxlsx::setColWidths(wb, "heterogeneite", cols = 1:2, widths = c(12, 12))
+      
+      # ---- Feuille 4 : divisions ----
+      openxlsx::addWorksheet(wb, "divisions")
+      openxlsx::writeData(wb, "divisions",
+                          data.frame(ligne = seq_along(out$divisions),
+                                     texte = out$divisions))
+      openxlsx::setColWidths(wb, "divisions", cols = 1, widths = 8)
+      openxlsx::setColWidths(wb, "divisions", cols = 2, widths = 110)
+      
+      openxlsx::saveWorkbook(wb, file, overwrite = TRUE)
+    }
+  )
 }
 
 shinyApp(ui = ui, server = server)

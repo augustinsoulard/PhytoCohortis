@@ -20,3 +20,17 @@ rsconnect::deployApp(
   appDir = "D:/Github/PhytoCohortis/R",
   appName = "PhytoCohortis"
 )
+
+
+# Installation du package TWINSPAN ----
+install.packages("renv")
+renv::init()       
+options(repos = c(twinspan = "https://jarioksa.r-universe.dev",
+                  CRAN     = "https://cloud.r-project.org"))
+
+renv::install("twinspan")
+renv::install("shiny")       
+renv::snapshot()
+
+# 5. Déployer
+rsconnect::deployApp()

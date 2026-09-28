@@ -411,14 +411,14 @@ write.csv2(df_summary,"df_summary.csv")
 # ___________________________________________
 # TWINSPAN ----------------------------------
 #____________________________________________
-# install.packages("twinspan",repos = c("https://jarioksa.r-universe.dev", "https://cloud.r-project.org"))
-
+# global.R — installer si absent, puis charger
+# if (!requireNamespace("twinspan", quietly = TRUE)) {install.packages("twinspan", repos = c("https://jarioksa.r-universe.dev","https://cloud.r-project.org"))}
 # chargement du package
 library(twinspan)
 # On repart de la matrice especes x releves
 # Application de twinspan
 tw <- twinspan(data_releve_matrix,   # data.frame ou matrix
-                cutlevels = c(0, 0.5, 5, 25, 50, 75),
+                cutlevels = c(0, 0.5, 1, 2, 3, 4,5),
                 levmax = 6,        # profondeur max de divisions
                 groupmin = 5)      # taille minimale d'un groupe divisible)  # pseudo-espèces
       
@@ -429,7 +429,7 @@ summary(tw)
 cl_modified <- cuth(tw, ngroups = 10)   # clusters selon Roleček et al. 2009
 
 ## --- Ordre phytosociologique (celui de twintable) ---
-ord_quad <- tw$quadrat$index     # ordre des relevés
+ord_quad <- tw$quadrat$index    # ordre des relevés
 ord_spec <- tw$species$index     # ordre des espèces
 
 tab <- t(data_releve_matrix[ord_quad, ord_spec])  # espèces en lignes, relevés en colonnes
@@ -506,7 +506,7 @@ style_especes <- createStyle(
 # ---  Classeur ---
 wb <- createWorkbook()
 
-# ---- Feuille 1 : Tableau ----
+# ---- Feuille 1 : Tableau ---
 addWorksheet(wb, "Tableau")
 writeData(wb, "Tableau", tab_disp, rowNames = FALSE)
 
@@ -543,14 +543,14 @@ setColWidths(wb, "Tableau", cols = 2:(ncol(tab_disp)), widths = 7)
 # figer la première ligne et la première colonne
 freezePane(wb, "Tableau", firstActiveRow = 2, firstActiveCol = 2)
 
-# ---- Feuille 2 : Relevés / clusters ----
+# ---- Feuille 2 : Relevés / clusters ---
 addWorksheet(wb, "releves_clusters")
 writeData(wb, "releves_clusters", releves)
 addStyle(wb, "releves_clusters", style_header,
          rows = 1, cols = 1:2, gridExpand = TRUE)
 setColWidths(wb, "releves_clusters", cols = 1:2, widths = c(20, 10))
 
-# ---- Feuille 3 : Hétérogénéité ----
+# ---- Feuille 3 : Hétérogénéité ---
 hetero <- hetero[order(-hetero$chi), ]   # tri par hétérogénéité décroissante
 addWorksheet(wb, "heterogeneite")
 writeData(wb, "heterogeneite", hetero)
@@ -558,7 +558,7 @@ addStyle(wb, "heterogeneite", style_header,
          rows = 1, cols = 1:2, gridExpand = TRUE)
 setColWidths(wb, "heterogeneite", cols = 1:2, widths = c(12, 12))
 
-# ---- Feuille 4 : Divisions (sortie summary) ----
+# ---- Feuille 4 : Divisions (sortie summary) ---
 addWorksheet(wb, "divisions")
 writeData(wb, "divisions",
           data.frame(ligne = seq_along(divisions), texte = divisions))
