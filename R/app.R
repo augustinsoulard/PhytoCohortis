@@ -156,7 +156,7 @@ ui <- tagList(tags$head(tags$style(HTML("
     h4, .h4 { color: #275c0a; }
 "))
 ),navbarPage(title =div("PhytoCohortis",
-                        HTML('&nbsp;&nbsp;<span style="color:#ffffff;font-size:13px;font-style:italic;">— par Augustin Soulard</span>')),
+                        HTML('&nbsp;&nbsp;<span style="color:#ffffff;font-size:13px;font-style:italic;">- par Augustin Soulard</span>')),
                  
                  # Onglet principal pour l'analyse
                  tabPanel("Analyse",
@@ -205,7 +205,7 @@ ui <- tagList(tags$head(tags$style(HTML("
                                    actionButton("twin_run", "Lancer TWINSPAN", class = "btn-success")
                             ),
                             column(9,
-                                   h4("Dendrogramme (hétérogénéité des groupes — Roleček et al. 2009)"),
+                                   h4("Dendrogramme (hétérogénéité des groupes)"),
                                    plotOutput("twin_dendro"),
                                    br(),
                                    h4("Historique des divisions"),
@@ -570,7 +570,7 @@ server <- function(input, output, session) {
     req(nrow(mat) >= 5, ncol(mat) >= 2)
     
     tw <- twinspan(mat,
-                   cutlevels = c(0, 1, 2, 3, 4, 5),  # 1 pseudo-espèce / classe BB (convert_bb : 1..6)
+                   cutlevels = c(0, 1, 2, 3, 4, 5),  # 1 pseudo-espèce / classe BB
                    levmax    = input$twin_levmax,
                    groupmin  = input$twin_groupmin)
     tw

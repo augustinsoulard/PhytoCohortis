@@ -411,7 +411,7 @@ write.csv2(df_summary,"df_summary.csv")
 # ___________________________________________
 # TWINSPAN ----------------------------------
 #____________________________________________
-# global.R — installer si absent, puis charger
+# global.R - installer si absent, puis charger
 # if (!requireNamespace("twinspan", quietly = TRUE)) {install.packages("twinspan", repos = c("https://jarioksa.r-universe.dev","https://cloud.r-project.org"))}
 # chargement du package
 library(twinspan)
